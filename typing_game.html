@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Typing Adventure</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Arial', sans-serif;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 1200px;
+            max-height: 800px;
+            aspect-ratio: 16/9;
+        }
+        
+        #starfield {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        #game-canvas {
+            position: absolute;
+            z-index: 2;
+        }
+        
+        #keyboard-display {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+            background: rgba(0, 0, 50, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #00a8ff;
+        }
+        
+        .key {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            margin: 5px;
+            background: rgba(0, 100, 200, 0.5);
+            border: 1px solid #00a8ff;
+            border-radius: 5px;
+            line-height: 40px;
+            text-align: center;
+            font-size: 18px;
+            color: white;
+            transition: all 0.2s;
+        }
+        
+        .key.active {
+            background: #00a8ff;
+            box-shadow: 0 0 15px #00a8ff;
+            transform: scale(1.1);
+        }
+
+        .upcoming {
+            opacity: 0.6;
+            filter: blur(1px);
+        }
+        
+        #rocket-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 3;
+            width: 100px;
+            height: 200px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200"><path d="M50 10 L70 50 L30 50 Z" fill="silver"/><rect x="40" y="50" width="20" height="120" fill="white"/><path d="M40 170 L60 170 L50 190 Z" fill="red"/></svg>');
+            background-repeat: no-repeat;
+            transition: all 0.5s;
+        }
+        
+        #score-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 3;
+            font-size: 24px;
+            color: #00a8ff;
+        }
+        
+        #level-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 3;
+            font-size: 24px;
+            color: #00a8ff;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="starfield"></canvas>
+        <canvas id="game-canvas"></canvas>
+        <div id="rocket-display"></div>
+        <div id="score-display">Score: 0</div>
+        <div id="level-display">Level: 1</div>
+        <div id="keyboard-display"></div>
+    </div>
+
+    <script>
+        // Game configuration
+        const config = {
+            levels: [
+                { name: "Home Row", keys: ['a','s','d','f','g','h','j','k','l',';'] },
+                { name: "Top Row", keys: ['q','w','e','r','t','y','u','i','o','p'] },
+                { name: "Bottom Row", keys: ['z','x','c','v','b','n','m',',','.','/'] },
+                { name: "All Letters", keys: ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'] }
+            ],
+            rocketParts: [
+                { score: 50, part: 'fuel-tank' },
+                { score: 100, part: 'booster' },
+                { score: 200, part: 'nose-cone' },
+                { score: 300, part: 'wings' }
+            ],
+            voiceMessages: {
+                welcome: "Welcome!",
+                correct: "Perfect!",
+                error: "Miss!",
+                levelUp: "Level Up!"
+            }
+        };
+
+        // Game state
+        let state = {
+            score: 0,
+            level: 0,
+            activeKeys: [],
+            fallingLetters: [],
+            lastLetterTime: 0,
+            rocketParts: []
+        };
+
+        // DOM elements
+        const starfieldCanvas = document.getElementById('starfield');
+        const gameCanvas = document.getElementById('game-canvas');
+        const keyboardDisplay = document.getElementById('keyboard-display');
+        const rocketDisplay = document.getElementById('rocket-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const levelDisplay = document.getElementById('level-display');
+
+        // Canvas setup
+        starfieldCanvas.width = window.innerWidth;
+        starfieldCanvas.height = window.innerHeight;
+        gameCanvas.width = window.innerWidth;
+        gameCanvas.height = window.innerHeight;
+
+        const starfieldCtx = starfieldCanvas.getContext('2d');
+        const gameCtx = gameCanvas.getContext('2d');
+
+        // Initialize keyboard display
+        function initKeyboard() {
+            keyboardDisplay.innerHTML = '';
+            config.levels[state.level].keys.forEach(key => {
+                const keyElement = document.createElement('div');
+                keyElement.className = 'key';
+                keyElement.textContent = key.toUpperCase();
+                keyElement.id = `key-${key}`;
+                keyboardDisplay.appendChild(keyElement);
+            });
+        }
+
+        // Create stars for background
+        function createStarfield() {
+            starfieldCtx.fillStyle = '#000';
+            starfieldCtx.fillRect(0, 0, starfieldCanvas.width, starfieldCanvas.height);
+            
+            // Draw stars
+            starfieldCtx.fillStyle = '#fff';
+            for (let i = 0; i < 200; i++) {
+                const x = Math.random() * starfieldCanvas.width;
+                const y = Math.random() * starfieldCanvas.height;
+                const size = Math.random() * 2;
+                starfieldCtx.beginPath();
+                starfieldCtx.arc(x, y, size, 0, Math.PI * 2);
+                starfieldCtx.fill();
+            }
+        }
+
+        // Generate new falling letter
+        function generateLetter() {
+            const now = Date.now();
+            if (now - state.lastLetterTime > 2000 && state.fallingLetters.length === 0) {
+                const keys = config.levels[state.level].keys;
+                const letter = keys[Math.floor(Math.random() * keys.length)];
+                state.fallingLetters.push({
+                    letter,
+                    x: Math.random() * (gameCanvas.width - 50),
+                    y: 0,
+                    speed: 1 + Math.random() * 1 + (state.level * 0.2),
+                    hit: false,
+                    upcoming: false
+                });
+                state.lastLetterTime = now;
+            }
+        }
+
+        // Update game state
+        function update() {
+            // Generate new letters
+            generateLetter();
+            
+            // Update falling letters
+            // Update falling letters
+            state.fallingLetters.forEach((letter, index) => {
+                if (!letter.hit) {
+                    letter.y += letter.speed;
+                    // Mark next 3 letters as upcoming
+                    if (index > 0 && index <= 3) {
+                        letter.upcoming = true;
+                    } else {
+                        letter.upcoming = false;
+                    }
+                }
+            });
+            
+            // Remove letters that hit bottom
+            state.fallingLetters = state.fallingLetters.filter(letter => 
+                letter.y < gameCanvas.height && !letter.hit
+            );
+            
+            // Check rocket parts
+            config.rocketParts.forEach(part => {
+                if (state.score >= part.score && !state.rocketParts.includes(part.part)) {
+                    state.rocketParts.push(part.part);
+                    speak(config.voiceMessages.levelUp);
+                }
+            });
+            
+            // Update displays
+            scoreDisplay.textContent = `Score: ${state.score}`;
+            levelDisplay.textContent = `Level: ${state.level + 1} - ${config.levels[state.level].name}`;
+            
+            // Check level completion
+            if (state.score >= (state.level + 1) * 100 && state.level < config.levels.length - 1) {
+                state.level++;
+                initKeyboard();
+            }
+        }
+
+        // Draw game
+        function draw() {
+            gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+            
+            // Draw falling letters
+            state.fallingLetters.forEach(letter => {
+                if (!letter.hit) {
+                    gameCtx.font = '30px Arial';
+                    
+                    if (letter.upcoming) {
+                        gameCtx.fillStyle = 'rgba(0, 168, 255, 0.6)';
+                        gameCtx.globalAlpha = 0.6;
+                    } else {
+                        gameCtx.fillStyle = '#00a8ff';
+                        gameCtx.globalAlpha = 1.0;
+                    }
+                    
+                    // Save current context state
+                    gameCtx.save();
+                    
+                    // Draw glow effect
+                    gameCtx.shadowColor = '#00a8ff';
+                    gameCtx.shadowBlur = 20;
+                    gameCtx.fillText(letter.letter.toUpperCase(), letter.x, letter.y);
+                    
+                    // Restore context to clear shadow settings
+                    gameCtx.restore();
+                    
+                    // Draw base letter
+                    gameCtx.globalAlpha = letter.upcoming ? 0.6 : 1.0;
+                    gameCtx.fillText(letter.letter.toUpperCase(), letter.x, letter.y);
+                    gameCtx.globalAlpha = 1.0;
+                }
+            });
+        }
+
+        // Handle key press
+        function handleKeyPress(e) {
+            const key = e.key.toLowerCase();
+            const keyElement = document.getElementById(`key-${key}`);
+            
+            if (keyElement) {
+                // Highlight key
+                keyElement.classList.add('active');
+                setTimeout(() => {
+                    keyElement.classList.remove('active');
+                }, 200);
+                
+                // Check if key matches any falling letter
+                let hit = false;
+                state.fallingLetters.forEach(letter => {
+                    if (letter.letter === key && !letter.hit) {
+                        letter.hit = true;
+                        hit = true;
+                        state.score += 10;
+                        
+                        // Create explosion effect
+                        createExplosion(letter.x, letter.y);
+                        
+                        // Play success sound
+                        speak(config.voiceMessages.correct);
+                    }
+                });
+                
+                if (!hit) {
+                    speak(config.voiceMessages.error);
+                }
+            }
+        }
+
+        // Create explosion effect
+        function createExplosion(x, y) {
+            const particles = [];
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x,
+                    y,
+                    size: Math.random() * 5 + 2,
+                    speedX: Math.random() * 6 - 3,
+                    speedY: Math.random() * 6 - 3,
+                    color: `hsl(${Math.random() * 60 + 180}, 100%, 50%)`,
+                    life: 100
+                });
+            }
+            
+            function animateParticles() {
+                gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+                let allDead = true;
+                
+                particles.forEach(p => {
+                    if (p.life > 0) {
+                        allDead = false;
+                        p.x += p.speedX;
+                        p.y += p.speedY;
+                        p.life--;
+                        
+                        gameCtx.globalAlpha = p.life / 100;
+                        gameCtx.fillStyle = p.color;
+                        gameCtx.beginPath();
+                        gameCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                        gameCtx.fill();
+                    }
+                });
+                
+                if (!allDead) {
+                    requestAnimationFrame(animateParticles);
+                }
+            }
+            
+            animateParticles();
+        }
+
+        // Text-to-speech function
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 0.9;
+                utterance.pitch = 1.2;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Update rocket display
+        function updateRocket() {
+            let rocketSVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200">';
+            
+            // Base rocket
+            rocketSVG += '<path d="M50 10 L70 50 L30 50 Z" fill="silver"/>';
+            rocketSVG += '<rect x="40" y="50" width="20" height="120" fill="white"/>';
+            rocketSVG += '<path d="M40 170 L60 170 L50 190 Z" fill="red"/>';
+            
+            // Add unlocked parts
+            if (state.rocketParts.includes('fuel-tank')) {
+                rocketSVG += '<rect x="35" y="70" width="30" height="30" fill="orange" rx="5"/>';
+            }
+            if (state.rocketParts.includes('booster')) {
+                rocketSVG += '<rect x="30" y="100" width="40" height="40" fill="blue" rx="5"/>';
+            }
+            if (state.rocketParts.includes('nose-cone')) {
+                rocketSVG += '<path d="M50 0 L60 10 L40 10 Z" fill="gold"/>';
+            }
+            if (state.rocketParts.includes('wings')) {
+                rocketSVG += '<path d="M20 120 L40 120 L30 140 Z" fill="red"/>';
+                rocketSVG += '<path d="M80 120 L60 120 L70 140 Z" fill="red"/>';
+            }
+            
+            rocketSVG += '</svg>';
+            rocketDisplay.style.backgroundImage = `url('data:image/svg+xml;utf8,${rocketSVG}')`;
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            updateRocket();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initialize game
+        function init() {
+            createStarfield();
+            initKeyboard();
+            
+            // Welcome message
+            speak(config.voiceMessages.welcome);
+            
+            // Event listeners
+            window.addEventListener('keydown', handleKeyPress);
+            window.addEventListener('resize', () => {
+                starfieldCanvas.width = window.innerWidth;
+                starfieldCanvas.height = window.innerHeight;
+                gameCanvas.width = window.innerWidth;
+                gameCanvas.height = window.innerHeight;
+                createStarfield();
+            });
+            
+            // Start game loop
+            gameLoop();
+        }
+
+        // Start the game
+        init();
+    </script>
+</body>
+</html>
