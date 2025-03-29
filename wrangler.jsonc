@@ -1,5 +1,5 @@
 {
-    "name": "learning-games-worker",
+    "name": "learning-games",
     "compatibility_date": "2025-03-29",
     "assets": {
         "directory": "./src"
