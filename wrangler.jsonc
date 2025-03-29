@@ -2,6 +2,6 @@
     "name": "learning-games-worker",
     "compatibility_date": "2025-03-29",
     "assets": {
-        "directory": "./"
+        "directory": "./src"
     }
 }
