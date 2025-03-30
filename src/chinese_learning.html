@@ -282,7 +282,7 @@
                 writer.setCharacter(character);
             }
             
-            writer.animateCharacter();
+            writer.loopCharacterAnimation();
         }
         
         // Update character list to show phrases and characters
@@ -300,9 +300,6 @@
                 phraseText.className = 'character';
                 phraseText.textContent = phrase;
                 phraseText.style.fontWeight = 'bold';
-                phraseText.addEventListener('click', () => {
-                    startPhraseGame(phrase);
-                });
                 phraseElement.appendChild(phraseText);
                 
                 // Create character elements
@@ -441,6 +438,12 @@
         // Initialize
         window.addEventListener('load', () => {
             loadWords();
+            // Auto-start game with random phrase
+            const allPhrases = [...phrases, ...commonPhrases];
+            if (allPhrases.length > 0) {
+                const randomPhrase = allPhrases[Math.floor(Math.random() * allPhrases.length)];
+                startPhraseGame(randomPhrase);
+            }
         });
     </script>
 </body>
