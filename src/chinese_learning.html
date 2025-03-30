@@ -204,7 +204,10 @@
         <div class="section">
             <h2 class="section-title">Input Chinese Words</h2>
             <textarea id="word-input" placeholder="Enter Chinese words or sentences..."></textarea>
-            <button id="save-btn">Save Words</button>
+            <div class="controls">
+                <button id="save-btn">Save Words</button>
+                <button id="segment-btn">Segment Sentences</button>
+            </div>
             <div id="character-list"></div>
         </div>
 
@@ -232,6 +235,7 @@
         // Word Input Section
         const wordInput = document.getElementById('word-input');
         const saveBtn = document.getElementById('save-btn');
+        const segmentBtn = document.getElementById('segment-btn');
         const characterList = document.getElementById('character-list');
         
         // Stroke Animation Section
@@ -248,13 +252,18 @@
         let phrases = [];
         let score = 0;
         
-        // Common Chinese phrases for when user input is insufficient
+        // Common Chinese phrases for bubble options
         const commonPhrases = [
-            '你好', '谢谢', '再见', '我爱你', '早上好', 
-            '晚上好', '对不起', '没关系', '请', '不客气',
-            '多少钱', '好吃', '水', '茶', '咖啡',
-            '中国', '美国', '英国', '日本', '韩国'
+            '你好', '谢谢', '再见', '对不起', '没关系',
+            '早上好', '晚上好', '你叫什么名字', '我叫...',
+            '多少钱', '太贵了', '便宜一点', '好吃', '不好吃'
         ];
+        
+        // Track phrase statistics
+        let phraseStats = {};
+        let currentRound = 1;
+        const maxRounds = 5;
+        let currentPhraseIndex = 0;
         
         // Load saved words from LocalStorage
         function loadWords() {
@@ -262,6 +271,22 @@
             if (savedWords) {
                 wordInput.value = savedWords;
                 updateCharacterList(savedWords);
+            }
+        }
+
+        // Segment Chinese text into phrases using Intl.Segmenter
+        function segmentText(text) {
+            try {
+                const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
+                const segments = Array.from(segmenter.segment(text));
+                
+                // Extract segments and filter out empty/single character phrases
+                return segments
+                    .map(segment => segment.segment)
+                    .filter(phrase => phrase.trim().length > 1);
+            } catch (error) {
+                console.error('Segmentation error:', error);
+                return text.split('\n').filter(phrase => phrase.trim());
             }
         }
         
@@ -286,9 +311,14 @@
         }
         
         // Update character list to show phrases and characters
-        function updateCharacterList(text) {
+        async function updateCharacterList(text, segmented = false) {
             characterList.innerHTML = '';
-            phrases = text.split('\n').filter(phrase => phrase.trim());
+            
+            if (segmented) {
+                phrases = await segmentText(text);
+            } else {
+                phrases = text.split('\n').filter(phrase => phrase.trim());
+            }
             
             phrases.forEach(phrase => {
                 // Create phrase element
@@ -341,14 +371,21 @@
                 speechSynthesis.speak(utterance);
             });
             
-            // Create correct answer plus 4 random distractors
-            const options = [targetPhrase];
-            const allAvailablePhrases = [...phrases, ...commonPhrases];
+            // Initialize stats for this phrase if not exists
+            if (!phraseStats[targetPhrase]) {
+                phraseStats[targetPhrase] = { correct: 0, attempts: 0 };
+            }
             
-            while (options.length < 5 && allAvailablePhrases.length > 1) {
-                const randomPhrase = allAvailablePhrases[Math.floor(Math.random() * allAvailablePhrases.length)];
+            // Create correct answer plus 4 random distractors from user phrases and common phrases
+            const options = [targetPhrase];
+            const allAvailablePhrases = [...phrases, ...commonPhrases].filter(p => p !== targetPhrase);
+            
+            while (options.length < 5 && allAvailablePhrases.length > 0) {
+                const randomIndex = Math.floor(Math.random() * allAvailablePhrases.length);
+                const randomPhrase = allAvailablePhrases[randomIndex];
                 if (!options.includes(randomPhrase)) {
                     options.push(randomPhrase);
+                    allAvailablePhrases.splice(randomIndex, 1); // Avoid duplicates
                 }
             }
             
@@ -375,9 +412,13 @@
                 bubble.style.pointerEvents = 'none';
             });
             
+            // Update phrase stats
+            phraseStats[targetPhrase].attempts++;
+            
             if (selectedPhrase === targetPhrase) {
                 score++;
-                scoreDisplay.textContent = `Score: ${score}`;
+                phraseStats[targetPhrase].correct++;
+                scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
                 bubbles.forEach(bubble => {
                     if (bubble.textContent === targetPhrase) {
                         bubble.classList.add('correct');
@@ -408,10 +449,21 @@
                 
                 if (secondsLeft < 0) {
                     clearInterval(timer);
-                    const nextPhrase = phrases.length > 0 ? 
-                        phrases[Math.floor(Math.random() * phrases.length)] :
-                        commonPhrases[Math.floor(Math.random() * commonPhrases.length)];
-                    startPhraseGame(nextPhrase);
+                    
+                    // Check if we've completed all rounds
+                    if (currentRound >= maxRounds && currentPhraseIndex >= phrases.length - 1) {
+                        showCompletion();
+                        return;
+                    }
+                    
+                    // Move to next phrase or next round
+                    currentPhraseIndex++;
+                    if (currentPhraseIndex >= phrases.length) {
+                        currentPhraseIndex = 0;
+                        currentRound++;
+                    }
+                    
+                    startPhraseGame(phrases[currentPhraseIndex]);
                 }
             }, 1000);
         }
@@ -420,7 +472,13 @@
         saveBtn.addEventListener('click', () => {
             const words = wordInput.value;
             localStorage.setItem('chineseWords', words);
-            updateCharacterList(words);
+            updateCharacterList(words, false);
+        });
+
+        segmentBtn.addEventListener('click', async () => {
+            const words = wordInput.value;
+            localStorage.setItem('chineseWords', words);
+            await updateCharacterList(words, true);
         });
         
         playBtn.addEventListener('click', () => {
@@ -435,16 +493,51 @@
             if (writer) writer.animateCharacter();
         });
         
-        // Initialize
-        window.addEventListener('load', () => {
-            loadWords();
-            // Auto-start game with random phrase
-            const allPhrases = [...phrases, ...commonPhrases];
-            if (allPhrases.length > 0) {
-                const randomPhrase = allPhrases[Math.floor(Math.random() * allPhrases.length)];
-                startPhraseGame(randomPhrase);
+        // Show completion message
+        function showCompletion() {
+            bubblesContainer.innerHTML = `
+                <div style="text-align: center; padding: 20px;">
+                    <h3 style="color: #2ecc71;">Game Completed Successfully!</h3>
+                    <p>You completed ${maxRounds} rounds of practice.</p>
+                    <button id="restart-game-btn" style="margin-top: 15px;">Play Again</button>
+                </div>
+            `;
+            
+            document.getElementById('restart-game-btn').addEventListener('click', restartGame);
+        }
+        
+        // Restart game
+        function restartGame() {
+            score = 0;
+            currentRound = 1;
+            currentPhraseIndex = 0;
+            phraseStats = {};
+            scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
+            
+            if (phrases.length > 0) {
+                startPhraseGame(phrases[0]);
             }
-        });
+        }
+        
+        // Initialize game
+        function initGame() {
+            loadWords();
+            // Add restart button next to score display
+            const restartBtn = document.createElement('button');
+            restartBtn.textContent = 'Restart Game';
+            restartBtn.id = 'restart-game-btn';
+            restartBtn.style.marginLeft = '10px';
+            restartBtn.addEventListener('click', restartGame);
+            scoreDisplay.parentNode.insertBefore(restartBtn, scoreDisplay.nextSibling);
+            
+            // Start game with first phrase if available
+            if (phrases.length > 0) {
+                startPhraseGame(phrases[0]);
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', initGame);
     </script>
 </body>
 </html>
