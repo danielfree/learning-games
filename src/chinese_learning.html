@@ -44,7 +44,38 @@
             font-size: 1.2em;
         }
 
-        #word-input {
+        /* Tab styles */
+        .tabs {
+            display: flex;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        #phrases-input, #sentences-input {
             width: 100%;
             min-height: 100px;
             padding: 10px;
@@ -203,10 +234,19 @@
         
         <div class="section">
             <h2 class="section-title">Input Chinese Words</h2>
-            <textarea id="word-input" placeholder="Enter Chinese words or sentences..."></textarea>
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="phrases">Phrases</button>
+                <button class="tab-btn" data-tab="sentences">Sentences</button>
+            </div>
+            <div class="tab-content active" id="phrases-tab">
+                <textarea id="phrases-input" placeholder="Enter Chinese phrases (one per line)..."></textarea>
+            </div>
+            <div class="tab-content" id="sentences-tab">
+                <textarea id="sentences-input" placeholder="Enter Chinese sentences (one per line)..."></textarea>
+            </div>
             <div class="controls">
-                <button id="save-btn">Save Words</button>
-                <button id="segment-btn">Segment Sentences</button>
+                <button id="save-btn">Save</button>
+                <button id="segment-btn">Auto-Segment</button>
             </div>
             <div id="character-list"></div>
         </div>
@@ -233,10 +273,32 @@
 
     <script>
         // Word Input Section
-        const wordInput = document.getElementById('word-input');
+        const phrasesInput = document.getElementById('phrases-input');
+        const sentencesInput = document.getElementById('sentences-input');
         const saveBtn = document.getElementById('save-btn');
         const segmentBtn = document.getElementById('segment-btn');
         const characterList = document.getElementById('character-list');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // Tab switching functionality
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                
+                // Update active tab button
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Show corresponding tab content
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === `${tabId}-tab`) {
+                        content.classList.add('active');
+                    }
+                });
+            });
+        });
         
         // Stroke Animation Section
         const strokeAnimation = document.getElementById('stroke-animation');
@@ -267,10 +329,19 @@
         
         // Load saved words from LocalStorage
         function loadWords() {
-            const savedWords = localStorage.getItem('chineseWords');
-            if (savedWords) {
-                wordInput.value = savedWords;
-                updateCharacterList(savedWords);
+            const savedPhrases = localStorage.getItem('chinesePhrases');
+            const savedSentences = localStorage.getItem('chineseSentences');
+            
+            if (savedPhrases) {
+                phrasesInput.value = savedPhrases;
+            }
+            if (savedSentences) {
+                sentencesInput.value = savedSentences;
+            }
+            
+            // Initialize with phrases if available
+            if (savedPhrases) {
+                updateCharacterList(savedPhrases);
             }
         }
 
@@ -470,15 +541,32 @@
         
         // Event Listeners
         saveBtn.addEventListener('click', () => {
-            const words = wordInput.value;
-            localStorage.setItem('chineseWords', words);
-            updateCharacterList(words, false);
+            const phrases = phrasesInput.value;
+            const sentences = sentencesInput.value;
+            localStorage.setItem('chinesePhrases', phrases);
+            localStorage.setItem('chineseSentences', sentences);
+            
+            // Update display with phrases
+            if (phrases) {
+                updateCharacterList(phrases, false);
+            }
         });
 
         segmentBtn.addEventListener('click', async () => {
-            const words = wordInput.value;
-            localStorage.setItem('chineseWords', words);
-            await updateCharacterList(words, true);
+            const sentences = sentencesInput.value;
+            if (sentences) {
+                localStorage.setItem('chineseSentences', sentences);
+                const segmentedPhrases = await segmentText(sentences);
+                
+                // Combine with existing phrases
+                const existingPhrases = phrasesInput.value ? phrasesInput.value.split('\n') : [];
+                const allPhrases = [...existingPhrases, ...segmentedPhrases].filter(p => p.trim());
+                phrasesInput.value = allPhrases.join('\n');
+                localStorage.setItem('chinesePhrases', allPhrases.join('\n'));
+                
+                // Update display with combined phrases
+                updateCharacterList(allPhrases.join('\n'), false);
+            }
         });
         
         playBtn.addEventListener('click', () => {
@@ -529,6 +617,24 @@
             restartBtn.style.marginLeft = '10px';
             restartBtn.addEventListener('click', restartGame);
             scoreDisplay.parentNode.insertBefore(restartBtn, scoreDisplay.nextSibling);
+            
+            // Combine phrases from both input areas
+            const savedPhrases = localStorage.getItem('chinesePhrases') || '';
+            const savedSentences = localStorage.getItem('chineseSentences') || '';
+            
+            // Get phrases from phrases input
+            const phraseList = savedPhrases.split('\n').filter(p => p.trim());
+            
+            // Get segmented phrases from sentences
+            const sentenceList = savedSentences.split('\n').filter(s => s.trim());
+            const segmentedPhrases = [];
+            for (const sentence of sentenceList) {
+                const segments = segmentText(sentence);
+                segmentedPhrases.push(...segments);
+            }
+            
+            // Combine all phrases
+            phrases = [...phraseList, ...segmentedPhrases].filter(p => p.trim());
             
             // Start game with first phrase if available
             if (phrases.length > 0) {
