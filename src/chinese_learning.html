@@ -43,39 +43,8 @@
             color: #3498db;
             font-size: 1.2em;
         }
-
-        /* Tab styles */
-        .tabs {
-            display: flex;
-            margin-bottom: 10px;
-            border-bottom: 1px solid #ddd;
-        }
         
-        .tab-btn {
-            padding: 10px 20px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            color: #7f8c8d;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
-        }
-        
-        .tab-btn.active {
-            color: #3498db;
-            border-bottom-color: #3498db;
-        }
-        
-        .tab-content {
-            display: none;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        #phrases-input, #sentences-input {
+        #chinese-input {
             width: 100%;
             min-height: 100px;
             padding: 10px;
@@ -226,6 +195,12 @@
             text-align: center;
             margin: 10px 0;
         }
+        
+        .input-description {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
@@ -233,20 +208,12 @@
         <h1>Chinese Learning Game</h1>
         
         <div class="section">
-            <h2 class="section-title">Input Chinese Words</h2>
-            <div class="tabs">
-                <button class="tab-btn active" data-tab="phrases">Phrases</button>
-                <button class="tab-btn" data-tab="sentences">Sentences</button>
-            </div>
-            <div class="tab-content active" id="phrases-tab">
-                <textarea id="phrases-input" placeholder="Enter Chinese phrases (one per line)..."></textarea>
-            </div>
-            <div class="tab-content" id="sentences-tab">
-                <textarea id="sentences-input" placeholder="Enter Chinese sentences (one per line)..."></textarea>
-            </div>
+            <h2 class="section-title">Input Chinese Words & Sentences</h2>
+            <p class="input-description">Enter Chinese words or sentences (one per line). Use the Auto-Segment button to break sentences into words.</p>
+            <textarea id="chinese-input" placeholder="Enter Chinese words or sentences (one per line)..."></textarea>
             <div class="controls">
-                <button id="save-btn">Save</button>
-                <button id="segment-btn">Auto-Segment</button>
+                <button id="save-btn">Save & Segment</button>
+                <!-- Removed separate segment button -->
             </div>
             <div id="character-list"></div>
         </div>
@@ -273,32 +240,9 @@
 
     <script>
         // Word Input Section
-        const phrasesInput = document.getElementById('phrases-input');
-        const sentencesInput = document.getElementById('sentences-input');
+        const chineseInput = document.getElementById('chinese-input');
         const saveBtn = document.getElementById('save-btn');
-        const segmentBtn = document.getElementById('segment-btn');
         const characterList = document.getElementById('character-list');
-        const tabBtns = document.querySelectorAll('.tab-btn');
-        const tabContents = document.querySelectorAll('.tab-content');
-        
-        // Tab switching functionality
-        tabBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tabId = btn.dataset.tab;
-                
-                // Update active tab button
-                tabBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                
-                // Show corresponding tab content
-                tabContents.forEach(content => {
-                    content.classList.remove('active');
-                    if (content.id === `${tabId}-tab`) {
-                        content.classList.add('active');
-                    }
-                });
-            });
-        });
         
         // Stroke Animation Section
         const strokeAnimation = document.getElementById('stroke-animation');
@@ -329,19 +273,11 @@
         
         // Load saved words from LocalStorage
         function loadWords() {
-            const savedPhrases = localStorage.getItem('chinesePhrases');
-            const savedSentences = localStorage.getItem('chineseSentences');
+            const savedInput = localStorage.getItem('chineseInput');
             
-            if (savedPhrases) {
-                phrasesInput.value = savedPhrases;
-            }
-            if (savedSentences) {
-                sentencesInput.value = savedSentences;
-            }
-            
-            // Initialize with phrases if available
-            if (savedPhrases) {
-                updateCharacterList(savedPhrases);
+            if (savedInput) {
+                chineseInput.value = savedInput;
+                updateCharacterList(savedInput, false);
             }
         }
 
@@ -351,16 +287,15 @@
                 const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
                 const segments = Array.from(segmenter.segment(text));
                 
-                // Extract segments and filter out empty/single character phrases
+                // Extract segments and don't filter out single character phrases
                 return segments
                     .map(segment => segment.segment)
-                    .filter(phrase => phrase.trim().length > 1);
+                    .filter(phrase => phrase.trim().length > 0); // Changed to keep single characters
             } catch (error) {
                 console.error('Segmentation error:', error);
                 return text.split('\n').filter(phrase => phrase.trim());
             }
         }
-        
         
         // Show stroke animation for character
         function showStrokeAnimation(character) {
@@ -427,12 +362,13 @@
 
         // Start new phrase matching game
         function startPhraseGame(targetPhrase) {
-            const pinyinText = pinyinPro.pinyin(targetPhrase);
+            const correctPinyin = pinyinPro.pinyin(targetPhrase);
             targetPhraseDisplay.innerHTML = `
-                <span>${pinyinText}</span>
+                <span>${targetPhrase}</span>
                 <button class="play-btn" title="Play pronunciation">▶️</button>
             `;
             targetPhraseDisplay.dataset.original = targetPhrase;
+            targetPhraseDisplay.dataset.pinyin = correctPinyin;
             bubblesContainer.innerHTML = '';
 
             // Setup audio playback
@@ -447,35 +383,182 @@
                 phraseStats[targetPhrase] = { correct: 0, attempts: 0 };
             }
             
-            // Create correct answer plus 4 random distractors from user phrases and common phrases
-            const options = [targetPhrase];
-            const allAvailablePhrases = [...phrases, ...commonPhrases].filter(p => p !== targetPhrase);
+            // Create correct pinyin answer plus 4 distractors
+            const options = [correctPinyin];
             
-            while (options.length < 5 && allAvailablePhrases.length > 0) {
-                const randomIndex = Math.floor(Math.random() * allAvailablePhrases.length);
-                const randomPhrase = allAvailablePhrases[randomIndex];
-                if (!options.includes(randomPhrase)) {
-                    options.push(randomPhrase);
-                    allAvailablePhrases.splice(randomIndex, 1); // Avoid duplicates
-                }
-            }
+            // Generate similar pinyin distractors with the same syllable count
+            const similarOptions = generateSimilarPinyinOptions(targetPhrase, correctPinyin, 4);
+            options.push(...similarOptions);
             
             // Shuffle options
             options.sort(() => Math.random() - 0.5);
             
             // Create bubble buttons
-            options.forEach(phrase => {
+            options.forEach(pinyin => {
                 const bubble = document.createElement('div');
                 bubble.className = 'phrase-bubble';
-                bubble.textContent = phrase;
-                bubble.addEventListener('click', () => checkAnswer(phrase, targetPhrase));
+                bubble.textContent = pinyin;
+                bubble.addEventListener('click', () => checkAnswer(pinyin));
                 bubblesContainer.appendChild(bubble);
             });
         }
 
+        // Generate similar pinyin options to make the game challenging
+        function generateSimilarPinyinOptions(targetPhrase, correctPinyin, count) {
+            const similarOptions = [];
+            
+            // Get the number of syllables in the correct pinyin
+            const syllables = correctPinyin.split(' ');
+            const syllableCount = syllables.length;
+            
+            // Strategy 1: Change the tone of one syllable
+            if (syllables.length > 0) {
+                for (let i = 0; i < syllables.length && similarOptions.length < count; i++) {
+                    const currentSyllable = syllables[i];
+                    // Extract base syllable without tone
+                    let baseSyllable = currentSyllable;
+                    let currentTone = '';
+                    
+                    // Check for tone numbers (1-4)
+                    if (/[1-4]$/.test(currentSyllable)) {
+                        baseSyllable = currentSyllable.slice(0, -1);
+                        currentTone = currentSyllable.slice(-1);
+                    }
+                    
+                    // Generate a different tone
+                    for (let tone = 1; tone <= 4; tone++) {
+                        if (tone.toString() !== currentTone) {
+                            const newSyllables = [...syllables];
+                            newSyllables[i] = baseSyllable + tone;
+                            const newPinyin = newSyllables.join(' ');
+                            
+                            if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
+                                similarOptions.push(newPinyin);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Strategy 2: Swap two adjacent syllables
+            if (syllables.length > 1 && similarOptions.length < count) {
+                for (let i = 0; i < syllables.length - 1 && similarOptions.length < count; i++) {
+                    const newSyllables = [...syllables];
+                    [newSyllables[i], newSyllables[i + 1]] = [newSyllables[i + 1], newSyllables[i]];
+                    const newPinyin = newSyllables.join(' ');
+                    
+                    if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
+                        similarOptions.push(newPinyin);
+                    }
+                }
+            }
+            
+            // Strategy 3: Replace one syllable with a similar-sounding one
+            const similarSounds = {
+                'shi': 'si', 'si': 'shi', 'zi': 'ci', 'ci': 'zi', 
+                'zhi': 'chi', 'chi': 'zhi', 'ri': 'li', 'li': 'ri',
+                'hu': 'fu', 'fu': 'hu', 'an': 'ang', 'ang': 'an',
+                'en': 'eng', 'eng': 'en', 'in': 'ing', 'ing': 'in',
+                'bo': 'po', 'po': 'bo', 'de': 'te', 'te': 'de',
+                'ge': 'ke', 'ke': 'ge', 'ju': 'qu', 'qu': 'ju'
+            };
+            
+            if (syllables.length > 0 && similarOptions.length < count) {
+                for (let i = 0; i < syllables.length && similarOptions.length < count; i++) {
+                    const currentSyllable = syllables[i];
+                    let baseSyllable = currentSyllable;
+                    let tone = '';
+                    
+                    // Extract tone if present
+                    if (/[1-4]$/.test(currentSyllable)) {
+                        baseSyllable = currentSyllable.slice(0, -1);
+                        tone = currentSyllable.slice(-1);
+                    }
+                    
+                    // Find similar sound
+                    for (const [sound, similar] of Object.entries(similarSounds)) {
+                        if (baseSyllable.includes(sound)) {
+                            const newBase = baseSyllable.replace(sound, similar);
+                            const newSyllables = [...syllables];
+                            newSyllables[i] = newBase + tone;
+                            const newPinyin = newSyllables.join(' ');
+                            
+                            if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
+                                similarOptions.push(newPinyin);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Strategy 4: Add or remove a syllable
+            if (similarOptions.length < count) {
+                if (syllables.length > 1) {
+                    // Remove a random syllable
+                    const indexToRemove = Math.floor(Math.random() * syllables.length);
+                    const newSyllables = syllables.filter((_, i) => i !== indexToRemove);
+                    const newPinyin = newSyllables.join(' ');
+                    
+                    if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
+                        similarOptions.push(newPinyin);
+                    }
+                }
+                
+                // Add a common syllable
+                const commonSyllables = ['de', 'le', 'ba', 'ma', 'ne', 'a', 'ya', 'wo', 'ni', 'ta'];
+                const randomSyllable = commonSyllables[Math.floor(Math.random() * commonSyllables.length)];
+                const position = Math.floor(Math.random() * (syllables.length + 1));
+                const newSyllables = [...syllables];
+                newSyllables.splice(position, 0, randomSyllable);
+                const newPinyin = newSyllables.join(' ');
+                
+                if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
+                    similarOptions.push(newPinyin);
+                }
+            }
+            
+            // If we still need more options, generate random ones with the same syllable count
+            if (similarOptions.length < count) {
+                // Get all available phrases
+                const allAvailablePhrases = [...phrases, ...commonPhrases].filter(p => p !== targetPhrase);
+                
+                // Try to find phrases with the same number of syllables
+                const matchingSyllablePhrases = allAvailablePhrases.filter(phrase => {
+                    const phrasePinyin = pinyinPro.pinyin(phrase);
+                    return phrasePinyin.split(' ').length === syllableCount;
+                });
+                
+                // Use matching syllable phrases first
+                let availablePhrases = matchingSyllablePhrases.length > 0 ? 
+                    [...matchingSyllablePhrases] : [...allAvailablePhrases];
+                
+                while (similarOptions.length < count && availablePhrases.length > 0) {
+                    const randomIndex = Math.floor(Math.random() * availablePhrases.length);
+                    const randomPhrase = availablePhrases[randomIndex];
+                    const randomPinyin = pinyinPro.pinyin(randomPhrase);
+                    
+                    // Only add if it has the same number of syllables or we're desperate for options
+                    const randomSyllables = randomPinyin.split(' ');
+                    if (randomSyllables.length === syllableCount && 
+                        !similarOptions.includes(randomPinyin) && 
+                        randomPinyin !== correctPinyin) {
+                        similarOptions.push(randomPinyin);
+                    }
+                    
+                    // Remove this phrase from available options
+                    availablePhrases.splice(randomIndex, 1);
+                }
+            }
+            
+            return similarOptions;
+        }
+
         // Check selected answer
-        function checkAnswer(selectedPhrase) {
+        function checkAnswer(selectedPinyin) {
             const targetPhrase = targetPhraseDisplay.dataset.original;
+            const correctPinyin = targetPhraseDisplay.dataset.pinyin;
             const bubbles = document.querySelectorAll('.phrase-bubble');
             
             // Disable all bubbles during transition
@@ -486,21 +569,21 @@
             // Update phrase stats
             phraseStats[targetPhrase].attempts++;
             
-            if (selectedPhrase === targetPhrase) {
+            if (selectedPinyin === correctPinyin) {
                 score++;
                 phraseStats[targetPhrase].correct++;
                 scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
                 bubbles.forEach(bubble => {
-                    if (bubble.textContent === targetPhrase) {
+                    if (bubble.textContent === correctPinyin) {
                         bubble.classList.add('correct');
                     }
                 });
             } else {
                 bubbles.forEach(bubble => {
-                    if (bubble.textContent === targetPhrase) {
+                    if (bubble.textContent === correctPinyin) {
                         bubble.classList.add('correct');
                     }
-                    if (bubble.textContent === selectedPhrase) {
+                    if (bubble.textContent === selectedPinyin) {
                         bubble.classList.add('incorrect');
                     }
                 });
@@ -540,35 +623,38 @@
         }
         
         // Event Listeners
-        saveBtn.addEventListener('click', () => {
-            const phrases = phrasesInput.value;
-            const sentences = sentencesInput.value;
-            localStorage.setItem('chinesePhrases', phrases);
-            localStorage.setItem('chineseSentences', sentences);
+        saveBtn.addEventListener('click', async () => {
+            const input = chineseInput.value;
+            localStorage.setItem('chineseInput', input);
             
-            // Update display with phrases
-            if (phrases) {
-                updateCharacterList(phrases, false);
+            if (input) {
+                // Process the input to segment sentences into words
+                const lines = input.split('\n');
+                const processedLines = [];
+                
+                for (const line of lines) {
+                    if (line.trim().length > 0) {
+                        // If line appears to be a sentence (more than 1 character), segment it
+                        if (line.length > 1) {
+                            const segmented = await segmentText(line);
+                            processedLines.push(...segmented);
+                        } else {
+                            // Keep single character phrases as they are
+                            processedLines.push(line);
+                        }
+                    }
+                }
+                
+                // Update the input with segmented content
+                const uniqueProcessed = [...new Set(processedLines)]; // Remove duplicates
+                chineseInput.value = uniqueProcessed.join('\n');
+                localStorage.setItem('chineseInput', chineseInput.value);
+                
+                // Update display with segmented phrases
+                updateCharacterList(chineseInput.value, false);
             }
         });
 
-        segmentBtn.addEventListener('click', async () => {
-            const sentences = sentencesInput.value;
-            if (sentences) {
-                localStorage.setItem('chineseSentences', sentences);
-                const segmentedPhrases = await segmentText(sentences);
-                
-                // Combine with existing phrases
-                const existingPhrases = phrasesInput.value ? phrasesInput.value.split('\n') : [];
-                const allPhrases = [...existingPhrases, ...segmentedPhrases].filter(p => p.trim());
-                phrasesInput.value = allPhrases.join('\n');
-                localStorage.setItem('chinesePhrases', allPhrases.join('\n'));
-                
-                // Update display with combined phrases
-                updateCharacterList(allPhrases.join('\n'), false);
-            }
-        });
-        
         playBtn.addEventListener('click', () => {
             if (writer) writer.animateCharacter();
         });
@@ -586,64 +672,27 @@
             bubblesContainer.innerHTML = `
                 <div style="text-align: center; padding: 20px;">
                     <h3 style="color: #2ecc71;">Game Completed Successfully!</h3>
-                    <p>You completed ${maxRounds} rounds of practice.</p>
+                    <p>Final Score: ${score} out of ${maxRounds * phrases.length}</p>
                     <button id="restart-game-btn" style="margin-top: 15px;">Play Again</button>
                 </div>
             `;
             
-            document.getElementById('restart-game-btn').addEventListener('click', restartGame);
+            document.getElementById('restart-game-btn').addEventListener('click', () => {
+                score = 0;
+                currentRound = 1;
+                currentPhraseIndex = 0;
+                scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
+                startPhraseGame(phrases[0]);
+            });
         }
         
-        // Restart game
-        function restartGame() {
-            score = 0;
-            currentRound = 1;
-            currentPhraseIndex = 0;
-            phraseStats = {};
-            scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
-            
-            if (phrases.length > 0) {
-                startPhraseGame(phrases[0]);
-            }
-        }
+        // Initialize the app
+        loadWords();
         
-        // Initialize game
-        function initGame() {
-            loadWords();
-            // Add restart button next to score display
-            const restartBtn = document.createElement('button');
-            restartBtn.textContent = 'Restart Game';
-            restartBtn.id = 'restart-game-btn';
-            restartBtn.style.marginLeft = '10px';
-            restartBtn.addEventListener('click', restartGame);
-            scoreDisplay.parentNode.insertBefore(restartBtn, scoreDisplay.nextSibling);
-            
-            // Combine phrases from both input areas
-            const savedPhrases = localStorage.getItem('chinesePhrases') || '';
-            const savedSentences = localStorage.getItem('chineseSentences') || '';
-            
-            // Get phrases from phrases input
-            const phraseList = savedPhrases.split('\n').filter(p => p.trim());
-            
-            // Get segmented phrases from sentences
-            const sentenceList = savedSentences.split('\n').filter(s => s.trim());
-            const segmentedPhrases = [];
-            for (const sentence of sentenceList) {
-                const segments = segmentText(sentence);
-                segmentedPhrases.push(...segments);
-            }
-            
-            // Combine all phrases
-            phrases = [...phraseList, ...segmentedPhrases].filter(p => p.trim());
-            
-            // Start game with first phrase if available
-            if (phrases.length > 0) {
-                startPhraseGame(phrases[0]);
-            }
+        // Start the game if we have phrases
+        if (phrases.length > 0) {
+            startPhraseGame(phrases[0]);
         }
-
-        // Initialize on page load
-        window.addEventListener('load', initGame);
     </script>
 </body>
 </html>
