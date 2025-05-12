@@ -313,6 +313,13 @@
                 writer.setCharacter(character);
             }
             
+            // Play pinyin pronunciation
+            const pinyin = pinyinPro.pinyin(character);
+            const utterance = new SpeechSynthesisUtterance(character);
+            utterance.lang = 'zh-CN';
+            utterance.rate = 0.8;
+            speechSynthesis.speak(utterance);
+            
             writer.loopCharacterAnimation();
         }
         
@@ -364,8 +371,8 @@
         function startPhraseGame(targetPhrase) {
             const correctPinyin = pinyinPro.pinyin(targetPhrase);
             targetPhraseDisplay.innerHTML = `
-                <span>${targetPhrase}</span>
-                <button class="play-btn" title="Play pronunciation">▶️</button>
+                <span>${correctPinyin}</span>
+                <button class="play-btn" title="Play pronunciation"">▶️</button>
             `;
             targetPhraseDisplay.dataset.original = targetPhrase;
             targetPhraseDisplay.dataset.pinyin = correctPinyin;
@@ -383,182 +390,69 @@
                 phraseStats[targetPhrase] = { correct: 0, attempts: 0 };
             }
             
-            // Create correct pinyin answer plus 4 distractors
-            const options = [correctPinyin];
+            // Generate homophone phrases with same character count
+            const options = generateHomophonePhrases(targetPhrase, correctPinyin, 4);
             
-            // Generate similar pinyin distractors with the same syllable count
-            const similarOptions = generateSimilarPinyinOptions(targetPhrase, correctPinyin, 4);
-            options.push(...similarOptions);
-            
-            // Shuffle options
+            // Add correct answer and shuffle
+            options.push(targetPhrase);
             options.sort(() => Math.random() - 0.5);
             
             // Create bubble buttons
-            options.forEach(pinyin => {
+            options.forEach(phrase => {
                 const bubble = document.createElement('div');
                 bubble.className = 'phrase-bubble';
-                bubble.textContent = pinyin;
-                bubble.addEventListener('click', () => checkAnswer(pinyin));
+                bubble.textContent = phrase;
+                bubble.addEventListener('click', () => checkAnswer(phrase));
                 bubblesContainer.appendChild(bubble);
             });
         }
 
-        // Generate similar pinyin options to make the game challenging
-        function generateSimilarPinyinOptions(targetPhrase, correctPinyin, count) {
-            const similarOptions = [];
+        // Helper function to compare pinyin ignoring tones
+        function isHomophone(pinyin1, pinyin2) {
+            // Remove tone numbers (1-4) from pinyin
+            const cleanPinyin1 = pinyin1.replace(/[1-4]/g, '');
+            const cleanPinyin2 = pinyin2.replace(/[1-4]/g, '');
+            return cleanPinyin1 === cleanPinyin2;
+        }
+
+        // Generate homophone phrases with same character count
+        function generateHomophonePhrases(targetPhrase, correctPinyin, count) {
+            const options = [targetPhrase];
+            const targetLength = targetPhrase.length;
             
-            // Get the number of syllables in the correct pinyin
-            const syllables = correctPinyin.split(' ');
-            const syllableCount = syllables.length;
+            // Get all available phrases with same character count
+            const allPhrases = [...phrases, ...commonPhrases].filter(
+                p => p !== targetPhrase && p.length === targetLength
+            );
             
-            // Strategy 1: Change the tone of one syllable
-            if (syllables.length > 0) {
-                for (let i = 0; i < syllables.length && similarOptions.length < count; i++) {
-                    const currentSyllable = syllables[i];
-                    // Extract base syllable without tone
-                    let baseSyllable = currentSyllable;
-                    let currentTone = '';
-                    
-                    // Check for tone numbers (1-4)
-                    if (/[1-4]$/.test(currentSyllable)) {
-                        baseSyllable = currentSyllable.slice(0, -1);
-                        currentTone = currentSyllable.slice(-1);
-                    }
-                    
-                    // Generate a different tone
-                    for (let tone = 1; tone <= 4; tone++) {
-                        if (tone.toString() !== currentTone) {
-                            const newSyllables = [...syllables];
-                            newSyllables[i] = baseSyllable + tone;
-                            const newPinyin = newSyllables.join(' ');
-                            
-                            if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
-                                similarOptions.push(newPinyin);
-                                break;
-                            }
-                        }
-                    }
+            // Find phrases with same pinyin (ignoring tones)
+            const targetPinyinNoTone = correctPinyin.replace(/[1-4]/g, '');
+            const homophones = allPhrases.filter(phrase => {
+                const phrasePinyin = pinyinPro.pinyin(phrase);
+                return isHomophone(phrasePinyin, correctPinyin);
+            });
+            
+            // If not enough homophones, add random phrases with same length
+            while (options.length < count + 1 && allPhrases.length > 0) {
+                const randomIndex = Math.floor(Math.random() * allPhrases.length);
+                const randomPhrase = allPhrases[randomIndex];
+                
+                if (!options.includes(randomPhrase)) {
+                    options.push(randomPhrase);
                 }
+                allPhrases.splice(randomIndex, 1);
             }
             
-            // Strategy 2: Swap two adjacent syllables
-            if (syllables.length > 1 && similarOptions.length < count) {
-                for (let i = 0; i < syllables.length - 1 && similarOptions.length < count; i++) {
-                    const newSyllables = [...syllables];
-                    [newSyllables[i], newSyllables[i + 1]] = [newSyllables[i + 1], newSyllables[i]];
-                    const newPinyin = newSyllables.join(' ');
-                    
-                    if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
-                        similarOptions.push(newPinyin);
-                    }
-                }
-            }
+            // Remove the correct answer if it was added randomly
+            const filteredOptions = options.filter(p => p !== targetPhrase);
             
-            // Strategy 3: Replace one syllable with a similar-sounding one
-            const similarSounds = {
-                'shi': 'si', 'si': 'shi', 'zi': 'ci', 'ci': 'zi', 
-                'zhi': 'chi', 'chi': 'zhi', 'ri': 'li', 'li': 'ri',
-                'hu': 'fu', 'fu': 'hu', 'an': 'ang', 'ang': 'an',
-                'en': 'eng', 'eng': 'en', 'in': 'ing', 'ing': 'in',
-                'bo': 'po', 'po': 'bo', 'de': 'te', 'te': 'de',
-                'ge': 'ke', 'ke': 'ge', 'ju': 'qu', 'qu': 'ju'
-            };
-            
-            if (syllables.length > 0 && similarOptions.length < count) {
-                for (let i = 0; i < syllables.length && similarOptions.length < count; i++) {
-                    const currentSyllable = syllables[i];
-                    let baseSyllable = currentSyllable;
-                    let tone = '';
-                    
-                    // Extract tone if present
-                    if (/[1-4]$/.test(currentSyllable)) {
-                        baseSyllable = currentSyllable.slice(0, -1);
-                        tone = currentSyllable.slice(-1);
-                    }
-                    
-                    // Find similar sound
-                    for (const [sound, similar] of Object.entries(similarSounds)) {
-                        if (baseSyllable.includes(sound)) {
-                            const newBase = baseSyllable.replace(sound, similar);
-                            const newSyllables = [...syllables];
-                            newSyllables[i] = newBase + tone;
-                            const newPinyin = newSyllables.join(' ');
-                            
-                            if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
-                                similarOptions.push(newPinyin);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Strategy 4: Add or remove a syllable
-            if (similarOptions.length < count) {
-                if (syllables.length > 1) {
-                    // Remove a random syllable
-                    const indexToRemove = Math.floor(Math.random() * syllables.length);
-                    const newSyllables = syllables.filter((_, i) => i !== indexToRemove);
-                    const newPinyin = newSyllables.join(' ');
-                    
-                    if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
-                        similarOptions.push(newPinyin);
-                    }
-                }
-                
-                // Add a common syllable
-                const commonSyllables = ['de', 'le', 'ba', 'ma', 'ne', 'a', 'ya', 'wo', 'ni', 'ta'];
-                const randomSyllable = commonSyllables[Math.floor(Math.random() * commonSyllables.length)];
-                const position = Math.floor(Math.random() * (syllables.length + 1));
-                const newSyllables = [...syllables];
-                newSyllables.splice(position, 0, randomSyllable);
-                const newPinyin = newSyllables.join(' ');
-                
-                if (!similarOptions.includes(newPinyin) && newPinyin !== correctPinyin) {
-                    similarOptions.push(newPinyin);
-                }
-            }
-            
-            // If we still need more options, generate random ones with the same syllable count
-            if (similarOptions.length < count) {
-                // Get all available phrases
-                const allAvailablePhrases = [...phrases, ...commonPhrases].filter(p => p !== targetPhrase);
-                
-                // Try to find phrases with the same number of syllables
-                const matchingSyllablePhrases = allAvailablePhrases.filter(phrase => {
-                    const phrasePinyin = pinyinPro.pinyin(phrase);
-                    return phrasePinyin.split(' ').length === syllableCount;
-                });
-                
-                // Use matching syllable phrases first
-                let availablePhrases = matchingSyllablePhrases.length > 0 ? 
-                    [...matchingSyllablePhrases] : [...allAvailablePhrases];
-                
-                while (similarOptions.length < count && availablePhrases.length > 0) {
-                    const randomIndex = Math.floor(Math.random() * availablePhrases.length);
-                    const randomPhrase = availablePhrases[randomIndex];
-                    const randomPinyin = pinyinPro.pinyin(randomPhrase);
-                    
-                    // Only add if it has the same number of syllables or we're desperate for options
-                    const randomSyllables = randomPinyin.split(' ');
-                    if (randomSyllables.length === syllableCount && 
-                        !similarOptions.includes(randomPinyin) && 
-                        randomPinyin !== correctPinyin) {
-                        similarOptions.push(randomPinyin);
-                    }
-                    
-                    // Remove this phrase from available options
-                    availablePhrases.splice(randomIndex, 1);
-                }
-            }
-            
-            return similarOptions;
+            // Return required number of options (max count)
+            return filteredOptions.slice(0, count);
         }
 
         // Check selected answer
-        function checkAnswer(selectedPinyin) {
+        function checkAnswer(selectedPhrase) {
             const targetPhrase = targetPhraseDisplay.dataset.original;
-            const correctPinyin = targetPhraseDisplay.dataset.pinyin;
             const bubbles = document.querySelectorAll('.phrase-bubble');
             
             // Disable all bubbles during transition
@@ -569,18 +463,18 @@
             // Update phrase stats
             phraseStats[targetPhrase].attempts++;
             
-            if (selectedPinyin === correctPinyin) {
+            if (selectedPhrase === targetPhrase) {
                 score++;
                 phraseStats[targetPhrase].correct++;
                 scoreDisplay.textContent = `Score: ${score} | Round: ${currentRound}/${maxRounds}`;
                 bubbles.forEach(bubble => {
-                    if (bubble.textContent === correctPinyin) {
+                    if (bubble.textContent === targetPhrase) {
                         bubble.classList.add('correct');
                     }
                 });
             } else {
                 bubbles.forEach(bubble => {
-                    if (bubble.textContent === correctPinyin) {
+                    if (bubble.textContent === targetPhrase) {
                         bubble.classList.add('correct');
                     }
                     if (bubble.textContent === selectedPinyin) {
